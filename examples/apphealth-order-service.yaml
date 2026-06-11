@@ -1,0 +1,56 @@
+# ── Example AppHealth: gRPC service with ServiceNow ticketing ──
+apiVersion: sre.k8s.io/v1alpha1
+kind: AppHealth
+metadata:
+  name: order-service-health
+  namespace: production
+spec:
+  targetDeployment: order-service
+  targetNamespace: production
+
+  metrics:
+    prometheusUrl: "http://prometheus:9090"
+    checkIntervalSeconds: 15
+    rules:
+      - name: grpc-error-rate
+        query: >
+          sum(rate(grpc_server_handled_total{job="order-service",grpc_code!="OK"}[1m]))
+          /
+          sum(rate(grpc_server_handled_total{job="order-service"}[1m]))
+          * 100
+        threshold: 3
+        operator: gt
+        forSeconds: 30
+        severity: critical
+
+      - name: grpc-slow-requests
+        query: >
+          histogram_quantile(0.95,
+            sum(rate(grpc_server_handling_seconds_bucket{job="order-service"}[1m]))
+            by (le, pod)
+          )
+        threshold: 1.0
+        operator: gt
+        forSeconds: 60
+        severity: warning
+
+  serviceMesh:
+    istio:
+      enabled: true
+      consecutive5xxErrors: 5
+      intervalSeconds: "15s"
+      baseEjectionTimeSeconds: "300s"
+      enableVirtualServiceEject: true
+
+  remediation:
+    enablePodIsolation: true
+    enableLogDump: true
+    enableTicketCreation: true
+    enableHScaling: true
+    scaleUpReplicas: 2
+    maxReplicas: 20
+    cooldownSeconds: 180
+    logDumpPath: "/var/log/self-healing"
+    ticketProvider: servicenow
+    # ticketWebhookUrl: "https://servicenow.example.com/api/now/table/incident"
+    # ticketAuthToken: ""  # Use K8s Secret in production

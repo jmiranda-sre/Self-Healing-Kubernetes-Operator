@@ -1,0 +1,77 @@
+# ── Example AppHealth: HTTP API with Istio mesh integration ──
+apiVersion: sre.k8s.io/v1alpha1
+kind: AppHealth
+metadata:
+  name: payment-api-health
+  namespace: default
+spec:
+  targetDeployment: payment-api
+  targetNamespace: default
+
+  metrics:
+    prometheusUrl: "http://prometheus:9090"
+    checkIntervalSeconds: 30
+    rules:
+      # Rule 1: HTTP 5xx rate exceeds 5% of total requests
+      - name: high-5xx-rate
+        query: >
+          sum(rate(http_requests_total{job="payment-api",code=~"5.."}[2m]))
+          /
+          sum(rate(http_requests_total{job="payment-api"}[2m]))
+          * 100
+        threshold: 5
+        operator: gt
+        forSeconds: 60
+        severity: critical
+
+      # Rule 2: P99 latency exceeds 500ms
+      - name: high-p99-latency
+        query: >
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket{job="payment-api"}[2m]))
+            by (le, pod)
+          )
+        threshold: 0.5
+        operator: gt
+        forSeconds: 45
+        severity: critical
+
+      # Rule 3: Error rate warning threshold
+      - name: elevated-error-rate
+        query: >
+          sum(rate(http_requests_total{job="payment-api",code=~"[45].."}[2m]))
+          /
+          sum(rate(http_requests_total{job="payment-api"}[2m]))
+          * 100
+        threshold: 2
+        operator: gt
+        forSeconds: 30
+        severity: warning
+
+  # ── Istio Service Mesh Integration ──
+  serviceMesh:
+    istio:
+      enabled: true
+      consecutive5xxErrors: 3
+      intervalSeconds: "30s"
+      baseEjectionTimeSeconds: "120s"
+      enableVirtualServiceEject: true
+
+  remediation:
+    enablePodIsolation: true
+    enableLogDump: true
+    enableTicketCreation: true
+    enableHScaling: true
+    scaleUpReplicas: 1
+    maxReplicas: 10
+    cooldownSeconds: 120
+    logDumpPath: "/var/log/self-healing"
+    ticketProvider: jira
+    ticketProjectKey: "SRE"
+    # ticketWebhookUrl: "https://jira.example.com/rest/api/2/issue"
+    # ticketAuthEmail: "operator@example.com"   # Use K8s Secret in production
+    # ticketAuthToken: ""                        # Use K8s Secret in production
+
+  businessMetrics:
+    sloTargetPercent: 99.9
+    errorBudgetPolicy: "standard-3-burn-rate"

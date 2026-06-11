@@ -1,0 +1,23 @@
+{{- if and .Values.metricsServer.enabled .Values.metricsServer.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "self-healing-operator.name" . }}-metrics
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ include "self-healing-operator.name" . }}
+    component: metrics
+  {{- range $key, $value := .Values.metricsServer.serviceMonitor.labels }}
+    {{ $key }}: {{ $value | quote }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "self-healing-operator.name" . }}
+      component: metrics
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: {{ .Values.metricsServer.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.metricsServer.serviceMonitor.scrapeTimeout }}
+{{- end }}

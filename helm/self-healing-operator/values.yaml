@@ -1,0 +1,143 @@
+# ── Self-Healing Operator Helm Values ──
+
+# -- Container image configuration
+image:
+  repository: self-healing-operator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# -- Operator replica count (1 for single-replica; >1 requires leader election)
+replicaCount: 1
+
+# -- Namespace to install the operator into
+namespace: self-healing-system
+
+# -- WATCH_NAMESPACE: empty = cluster-wide, or set to a specific namespace
+watchNamespace: ""
+
+# -- Dry-run mode (no K8s mutations)
+dryRun: false
+
+# -- Log level: debug | info | warn | error
+logLevel: info
+
+# ── Leader Election (Sprint 4) ──
+leaderElection:
+  enabled: false
+  leaseName: self-healing-operator
+  namespace: ""  # defaults to the operator's namespace
+  leaseDurationSeconds: 15
+  renewalIntervalSeconds: 5.0
+
+# ── Metrics Server (Sprint 3) ──
+metricsServer:
+  enabled: true
+  host: "0.0.0.0"
+  port: 9090
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 9090
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: "/metrics"
+  # -- Prometheus Operator ServiceMonitor (Sprint 4)
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# ── Prometheus Configuration ──
+metrics:
+  prometheusUrl: "http://prometheus:9090"
+  queryTimeout: 10
+  checkIntervalSeconds: 30
+
+# ── Remediation Configuration ──
+remediation:
+  enablePodIsolation: true
+  enableLogDump: true
+  enableTicketCreation: true
+  enableHScaling: true
+  scaleUpReplicas: 1
+  maxReplicas: 10
+  cooldownSeconds: 120
+  logDumpPath: "/var/log/self-healing"
+
+# ── Istio Service Mesh ──
+istio:
+  enabled: false
+  consecutive5xxErrors: 3
+  intervalSeconds: "30s"
+  baseEjectionTime: "120s"
+  enableVirtualServiceEject: true
+
+# ── Ticket Integration ──
+ticket:
+  provider: generic  # generic | jira | servicenow
+  projectKey: SRE
+  webhookUrl: ""
+  webhookSecret: ""
+  authEmail: ""
+  authToken: ""
+  timeout: 10
+  retryMaxAttempts: 3
+
+# ── Resource limits ──
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# ── Security Context ──
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ── PVC for log dumps ──
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  storageClassName: standard
+
+# ── Service Account ──
+serviceAccount:
+  create: true
+  name: self-healing-operator
+
+# ── RBAC ──
+rbac:
+  create: true
+
+# ── CRD ──
+crds:
+  install: true
+
+# ── Pod annotations ──
+podAnnotations: {}
+
+# ── Node selector ──
+nodeSelector: {}
+
+# ── Tolerations ──
+tolerations: []
+
+# ── Affinity ──
+affinity: {}

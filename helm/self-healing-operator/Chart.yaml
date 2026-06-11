@@ -1,0 +1,19 @@
+apiVersion: v2
+name: self-healing-operator
+description: Self-Healing Kubernetes Operator — SRE automation for business metrics
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - kubernetes
+  - operator
+  - sre
+  - self-healing
+  - prometheus
+  - istio
+home: https://github.com/miranda/self-healing-kubernetes-operator
+sources:
+  - https://github.com/miranda/self-healing-kubernetes-operator
+maintainers:
+  - name: miranda
+    email: miranda@example.com

@@ -1,0 +1,176 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "self-healing-operator.name" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "self-healing-operator.labels" . | nindent 4 }}
+    component: controller
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "self-healing-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "self-healing-operator.selectorLabels" . | nindent 8 }}
+        component: controller
+      annotations:
+        {{- if .Values.metricsServer.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metricsServer.port | quote }}
+        prometheus.io/path: "/metrics"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.securityContext.runAsGroup }}
+        fsGroup: {{ .Values.securityContext.fsGroup }}
+        seccompProfile:
+          type: {{ .Values.securityContext.seccompProfile.type }}
+      containers:
+        - name: operator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: {{ .Values.containerSecurityContext.allowPrivilegeEscalation }}
+            readOnlyRootFilesystem: {{ .Values.containerSecurityContext.readOnlyRootFilesystem }}
+            capabilities:
+              drop:
+                {{- range .Values.containerSecurityContext.capabilities.drop }}
+                - {{ . }}
+                {{- end }}
+          env:
+            - name: PROMETHEUS_URL
+              value: {{ .Values.metrics.prometheusUrl | quote }}
+            - name: PROMETHEUS_QUERY_TIMEOUT
+              value: {{ .Values.metrics.queryTimeout | quote }}
+            - name: CHECK_INTERVAL_SECONDS
+              value: {{ .Values.metrics.checkIntervalSeconds | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: DRY_RUN
+              value: {{ .Values.dryRun | quote }}
+            - name: ENABLE_POD_ISOLATION
+              value: {{ .Values.remediation.enablePodIsolation | quote }}
+            - name: ENABLE_LOG_DUMP
+              value: {{ .Values.remediation.enableLogDump | quote }}
+            - name: ENABLE_TICKET_CREATION
+              value: {{ .Values.remediation.enableTicketCreation | quote }}
+            - name: ENABLE_H_SCALING
+              value: {{ .Values.remediation.enableHScaling | quote }}
+            - name: SCALE_UP_REPLICAS
+              value: {{ .Values.remediation.scaleUpReplicas | quote }}
+            - name: MAX_REPLICAS
+              value: {{ .Values.remediation.maxReplicas | quote }}
+            - name: COOLDOWN_SECONDS
+              value: {{ .Values.remediation.cooldownSeconds | quote }}
+            - name: LOG_DUMP_PATH
+              value: {{ .Values.remediation.logDumpPath | quote }}
+            # Istio
+            - name: ISTIO_ENABLED
+              value: {{ .Values.istio.enabled | quote }}
+            - name: ISTIO_CONSECUTIVE_5XX_ERRORS
+              value: {{ .Values.istio.consecutive5xxErrors | quote }}
+            - name: ISTIO_INTERVAL_SECONDS
+              value: {{ .Values.istio.intervalSeconds | quote }}
+            - name: ISTIO_BASE_EJECTION_TIME
+              value: {{ .Values.istio.baseEjectionTime | quote }}
+            - name: ISTIO_ENABLE_VS_EJECT
+              value: {{ .Values.istio.enableVirtualServiceEject | quote }}
+            # Ticket integration
+            - name: TICKET_WEBHOOK_URL
+              value: {{ .Values.ticket.webhookUrl | quote }}
+            - name: TICKET_WEBHOOK_SECRET
+              value: {{ .Values.ticket.webhookSecret | quote }}
+            - name: TICKET_AUTH_EMAIL
+              value: {{ .Values.ticket.authEmail | quote }}
+            - name: TICKET_AUTH_TOKEN
+              value: {{ .Values.ticket.authToken | quote }}
+            - name: TICKET_WEBHOOK_TIMEOUT
+              value: {{ .Values.ticket.timeout | quote }}
+            - name: TICKET_RETRY_MAX_ATTEMPTS
+              value: {{ .Values.ticket.retryMaxAttempts | quote }}
+  # Metrics server + multi-namespace (Sprint 3)
+  {{- if .Values.metricsServer.enabled }}
+  - name: METRICS_SERVER_PORT
+    value: {{ .Values.metricsServer.port | quote }}
+  - name: METRICS_SERVER_HOST
+    value: {{ .Values.metricsServer.host | quote }}
+  {{- end }}
+  - name: WATCH_NAMESPACE
+    value: {{ .Values.watchNamespace | quote }}
+# Leader Election (Sprint 4)
+- name: LEADER_ELECT
+  value: {{ .Values.leaderElection.enabled | quote }}
+- name: LEADER_ELECTION_LEASE_NAME
+  value: {{ .Values.leaderElection.leaseName | quote }}
+- name: OPERATOR_NAMESPACE
+  value: {{ .Values.namespace | quote }}
+{{- if .Values.leaderElection.namespace }}
+- name: LEADER_ELECTION_NAMESPACE
+  value: {{ .Values.leaderElection.namespace | quote }}
+{{- end }}
+  - name: LEADER_ELECTION_DURATION_SECONDS
+    value: {{ .Values.leaderElection.leaseDurationSeconds | quote }}
+  - name: LEADER_ELECTION_RENEW_INTERVAL_SECONDS
+    value: {{ .Values.leaderElection.renewalIntervalSeconds | quote }}
+          ports:
+            {{- if .Values.metricsServer.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metricsServer.port }}
+              protocol: TCP
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: log-storage
+              mountPath: /var/log/self-healing
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.metricsServer.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.metricsServer.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: log-storage
+          persistentVolumeClaim:
+            claimName: {{ include "self-healing-operator.name" . }}-log-pvc
+        {{- else }}
+        - name: log-storage
+          emptyDir: {}
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30

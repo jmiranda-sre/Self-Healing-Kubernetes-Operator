@@ -1,0 +1,24 @@
+Self-Healing Kubernetes Operator installed!
+
+Operator namespace: {{ .Values.namespace }}
+Watch scope: {{ .Values.watchNamespace | default "(cluster-wide)" }}
+Dry-run mode: {{ .Values.dryRun }}
+
+{{- if .Values.metricsServer.enabled }}
+Metrics endpoint: http://{{ include "self-healing-operator.name" . }}-metrics.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.metricsServer.service.port }}/metrics
+Health endpoint: http://{{ include "self-healing-operator.name" . }}-metrics.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.metricsServer.service.port }}/health
+{{- end }}
+
+Next steps:
+  1. Apply an AppHealth resource:
+     kubectl apply -f examples/apphealth-payment-api.yaml
+
+  2. Check operator status:
+     kubectl get apphealths -A
+
+  3. View operator logs:
+     kubectl logs -n {{ .Values.namespace }} -l app={{ include "self-healing-operator.name" . }} -f
+
+  4. Check operator metrics:
+     kubectl port-forward -n {{ .Values.namespace }} svc/{{ include "self-healing-operator.name" . }}-metrics {{ .Values.metricsServer.service.port }}:{{ .Values.metricsServer.service.port }}
+     curl http://localhost:{{ .Values.metricsServer.service.port }}/metrics

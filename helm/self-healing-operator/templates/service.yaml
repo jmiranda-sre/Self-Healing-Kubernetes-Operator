@@ -1,0 +1,23 @@
+{{- if and .Values.metricsServer.enabled .Values.metricsServer.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "self-healing-operator.name" . }}-metrics
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ include "self-healing-operator.name" . }}
+    component: metrics
+  annotations:
+    {{- range $key, $value := .Values.metricsServer.service.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  type: {{ .Values.metricsServer.service.type }}
+  ports:
+    - name: metrics
+      port: {{ .Values.metricsServer.service.port }}
+      targetPort: {{ .Values.metricsServer.port }}
+      protocol: TCP
+  selector:
+    {{- include "self-healing-operator.selectorLabels" . | nindent 4 }}
+{{- end }}

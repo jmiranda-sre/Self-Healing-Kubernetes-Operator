@@ -1,0 +1,37 @@
+# ── Example: AppHealth with generic webhook (no service mesh) ──
+apiVersion: sre.k8s.io/v1alpha1
+kind: AppHealth
+metadata:
+  name: frontend-health
+  namespace: default
+spec:
+  targetDeployment: frontend-web
+  targetNamespace: default
+
+  metrics:
+    prometheusUrl: "http://prometheus:9090"
+    checkIntervalSeconds: 60
+    rules:
+      - name: frontend-5xx-rate
+        query: >
+          sum(rate(http_requests_total{job="frontend-web",code=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total{job="frontend-web"}[5m]))
+          * 100
+        threshold: 10
+        operator: gt
+        forSeconds: 120
+        severity: critical
+
+  # No service mesh — uses only K8s label-based isolation
+  remediation:
+    enablePodIsolation: true
+    enableLogDump: true
+    enableTicketCreation: true
+    enableHScaling: true
+    scaleUpReplicas: 1
+    maxReplicas: 5
+    cooldownSeconds: 300
+    logDumpPath: "/var/log/self-healing"
+    ticketProvider: generic
+    # ticketWebhookUrl: "http://alertmanager-webhook:8080/incident"

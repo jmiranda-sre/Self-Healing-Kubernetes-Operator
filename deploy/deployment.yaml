@@ -1,0 +1,133 @@
+# ── Operator Deployment ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healing-operator
+  namespace: self-healing-system
+  labels:
+    app: self-healing-operator
+    component: controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: self-healing-operator
+  template:
+    metadata:
+      labels:
+        app: self-healing-operator
+        component: controller
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: self-healing-operator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: operator
+          image: self-healing-operator:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus:9090"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: DRY_RUN
+              value: "false"
+            - name: ENABLE_POD_ISOLATION
+              value: "true"
+            - name: ENABLE_LOG_DUMP
+              value: "true"
+            - name: ENABLE_TICKET_CREATION
+              value: "true"
+            - name: ENABLE_H_SCALING
+              value: "true"
+            - name: SCALE_UP_REPLICAS
+              value: "1"
+            - name: MAX_REPLICAS
+              value: "10"
+            - name: COOLDOWN_SECONDS
+              value: "120"
+            - name: LOG_DUMP_PATH
+              value: "/var/log/self-healing"
+            # Ticket webhook — use Secret in production
+            - name: TICKET_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: operator-secrets
+                  key: ticket-webhook-url
+                  optional: true
+  - name: TICKET_WEBHOOK_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: operator-secrets
+        key: ticket-webhook-secret
+        optional: true
+  # Metrics server + multi-namespace (Sprint 3)
+  - name: METRICS_SERVER_PORT
+    value: "9090"
+  - name: METRICS_SERVER_HOST
+    value: "0.0.0.0"
+  - name: WATCH_NAMESPACE
+    value: "" # Empty = cluster-wide. Set to a specific namespace to scope the operator.
+  # Leader Election (Sprint 4)
+  - name: LEADER_ELECT
+    value: "false" # Set to "true" when running >1 replica
+  - name: LEADER_ELECTION_LEASE_NAME
+    value: "self-healing-operator"
+  - name: OPERATOR_NAMESPACE
+    value: "self-healing-system"
+  - name: LEADER_ELECTION_DURATION_SECONDS
+    value: "15"
+  - name: LEADER_ELECTION_RENEW_INTERVAL_SECONDS
+    value: "5.0"
+  ports:
+  - name: metrics
+    containerPort: 9090
+    protocol: TCP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+          volumeMounts:
+            - name: log-storage
+              mountPath: /var/log/self-healing
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: log-storage
+          persistentVolumeClaim:
+            claimName: operator-log-pvc
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+# ── PVC for log dumps ──
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: operator-log-pvc
+  namespace: self-healing-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: standard

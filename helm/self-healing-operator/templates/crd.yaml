@@ -1,0 +1,243 @@
+{{- if .Values.crds.install }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: apphealths.sre.k8s.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    app: {{ include "self-healing-operator.name" . }}
+    component: crd
+spec:
+  group: sre.k8s.io
+  scope: Namespaced
+  names:
+    kind: AppHealth
+    listKind: AppHealthList
+    plural: apphealths
+    singular: apphealth
+    shortNames:
+      - ah
+      - apph
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Target
+          type: string
+          jsonPath: .spec.targetDeployment
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+        - name: Unhealthy
+          type: string
+          jsonPath: .status.unhealthyPods
+        - name: Incidents
+          type: integer
+          jsonPath: .status.incidentCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - targetDeployment
+                - metrics
+              properties:
+                targetDeployment:
+                  type: string
+                  description: "Name of the Deployment to monitor and remediate."
+                targetNamespace:
+                  type: string
+                  default: "default"
+                  description: "Namespace of the target Deployment."
+                metrics:
+                  type: object
+                  required:
+                    - prometheusUrl
+                    - checkIntervalSeconds
+                    - rules
+                  properties:
+                    prometheusUrl:
+                      type: string
+                      description: "Prometheus server URL."
+                    checkIntervalSeconds:
+                      type: integer
+                      minimum: 10
+                      maximum: 3600
+                      default: 30
+                    rules:
+                      type: array
+                      minItems: 1
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - query
+                          - threshold
+                          - operator
+                          - forSeconds
+                        properties:
+                          name:
+                            type: string
+                          query:
+                            type: string
+                          threshold:
+                            type: number
+                          operator:
+                            type: string
+                            enum: [gt, gte, lt, lte, eq, neq]
+                          forSeconds:
+                            type: integer
+                            minimum: 0
+                            default: 0
+                          severity:
+                            type: string
+                            enum: [critical, warning]
+                            default: "critical"
+                serviceMesh:
+                  type: object
+                  description: "Service mesh integration."
+                  properties:
+                    istio:
+                      type: object
+                      description: "Istio service mesh configuration."
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        consecutive5xxErrors:
+                          type: integer
+                          minimum: 1
+                          maximum: 100
+                          default: 3
+                        intervalSeconds:
+                          type: string
+                          default: "30s"
+                        baseEjectionTimeSeconds:
+                          type: string
+                          default: "120s"
+                        enableVirtualServiceEject:
+                          type: boolean
+                          default: true
+                remediation:
+                  type: object
+                  properties:
+                    enablePodIsolation:
+                      type: boolean
+                      default: true
+                    enableLogDump:
+                      type: boolean
+                      default: true
+                    enableTicketCreation:
+                      type: boolean
+                      default: true
+                    enableHScaling:
+                      type: boolean
+                      default: true
+                    scaleUpReplicas:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                      default: 1
+                    maxReplicas:
+                      type: integer
+                      minimum: 1
+                      maximum: 1000
+                      default: 10
+                    cooldownSeconds:
+                      type: integer
+                      minimum: 30
+                      maximum: 3600
+                      default: 120
+                    logDumpPath:
+                      type: string
+                      default: "/var/log/self-healing"
+                    ticketWebhookUrl:
+                      type: string
+                    ticketWebhookSecret:
+                      type: string
+                    ticketAuthEmail:
+                      type: string
+                    ticketAuthToken:
+                      type: string
+                    ticketProvider:
+                      type: string
+                      enum: [generic, jira, servicenow]
+                      default: "generic"
+                    ticketProjectKey:
+                      type: string
+                      default: "SRE"
+                businessMetrics:
+                  type: object
+                  description: "Optional business SLO definitions."
+                  properties:
+                    sloTargetPercent:
+                      type: number
+                      minimum: 0
+                      maximum: 100
+                    errorBudgetPolicy:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [healthy, degrading, remediating, error]
+                observedGeneration:
+                  type: integer
+                lastCheckTime:
+                  type: string
+                  format: date-time
+                lastRemediationTime:
+                  type: string
+                  format: date-time
+                unhealthyPods:
+                  type: string
+                incidentCount:
+                  type: integer
+                currentReplicas:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status, lastTransitionTime]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                remediationHistory:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                      podName:
+                        type: string
+                      ruleName:
+                        type: string
+                      action:
+                        type: string
+{{- end }}

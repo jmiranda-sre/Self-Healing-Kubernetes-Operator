@@ -1,0 +1,52 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "self-healing-operator.name" . }}
+  labels:
+    app: {{ include "self-healing-operator.name" . }}
+rules:
+  # CRD management
+  - apiGroups: ["sre.k8s.io"]
+    resources: ["apphealths", "apphealths/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Deployment read/scale
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Pod management
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "patch"]
+  # Events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Namespaces
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Istio
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules", "virtualservices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Leases (for leader election)
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "self-healing-operator.name" . }}
+  labels:
+    app: {{ include "self-healing-operator.name" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "self-healing-operator.name" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name }}
+    namespace: {{ .Values.namespace }}
+{{- end }}

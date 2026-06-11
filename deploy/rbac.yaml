@@ -1,0 +1,72 @@
+# ── RBAC: ServiceAccount ──
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: self-healing-operator
+  namespace: self-healing-system
+  labels:
+    app: self-healing-operator
+---
+# ── RBAC: ClusterRole ──
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: self-healing-operator
+  labels:
+    app: self-healing-operator
+rules:
+  # CRD management
+  - apiGroups: ["sre.k8s.io"]
+    resources: ["apphealths", "apphealths/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Deployment read/scale
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Pod management (isolation via labels, log collection)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "patch"]
+  # Events (for incident recording)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Namespaces (read-only)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Istio DestinationRules + VirtualServices (for outlierDetection ejection)
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules", "virtualservices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Leases (for leader election)
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# ── RBAC: ClusterRoleBinding ──
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: self-healing-operator
+  labels:
+    app: self-healing-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: self-healing-operator
+subjects:
+  - kind: ServiceAccount
+    name: self-healing-operator
+    namespace: self-healing-system
+---
+# ── Namespace ──
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: self-healing-system
+  labels:
+    app: self-healing-operator
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

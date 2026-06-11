@@ -1,0 +1,309 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: apphealths.sre.k8s.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    app: self-healing-operator
+    component: crd
+spec:
+  group: sre.k8s.io
+  scope: Namespaced
+  names:
+    kind: AppHealth
+    listKind: AppHealthList
+    plural: apphealths
+    singular: apphealth
+    shortNames:
+      - ah
+      - apph
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Target
+          type: string
+          jsonPath: .spec.targetDeployment
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+        - name: Unhealthy
+          type: string
+          jsonPath: .status.unhealthyPods
+        - name: Incidents
+          type: integer
+          jsonPath: .status.incidentCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - targetDeployment
+                - metrics
+              properties:
+                targetDeployment:
+                  type: string
+                  description: "Name of the Deployment to monitor and remediate."
+                targetNamespace:
+                  type: string
+                  default: "default"
+                  description: "Namespace of the target Deployment. Defaults to the same namespace as the AppHealth resource."
+                metrics:
+                  type: object
+                  required:
+                    - prometheusUrl
+                    - checkIntervalSeconds
+                    - rules
+                  properties:
+                    prometheusUrl:
+                      type: string
+                      description: "Prometheus server URL (e.g. http://prometheus:9090)."
+                    checkIntervalSeconds:
+                      type: integer
+                      minimum: 10
+                      maximum: 3600
+                      default: 30
+                      description: "Interval in seconds between metric checks."
+                    rules:
+                      type: array
+                      minItems: 1
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - query
+                          - threshold
+                          - operator
+                          - forSeconds
+                        properties:
+                          name:
+                            type: string
+                            description: "Human-readable rule name (e.g. high-5xx-rate)."
+                          query:
+                            type: string
+                            description: "PromQL query. Must return per-pod vectors for targeted remediation."
+                          threshold:
+                            type: number
+                            description: "Numeric threshold to compare against."
+                          operator:
+                            type: string
+                            enum:
+                              - gt
+                              - gte
+                              - lt
+                              - lte
+                              - eq
+                              - neq
+                            description: "Comparison operator."
+                          forSeconds:
+                            type: integer
+                            minimum: 0
+                            default: 0
+                            description: "How long the condition must hold before triggering (sustain window)."
+                          severity:
+                            type: string
+                            enum:
+                              - critical
+                              - warning
+                            default: "critical"
+                serviceMesh:
+                  type: object
+                  description: "Service mesh integration for network-level Pod ejection."
+                  properties:
+                    istio:
+                      type: object
+                      description: "Istio service mesh configuration for outlierDetection and VirtualService ejection."
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                          description: "Enable Istio DestinationRule outlierDetection and VirtualService ejection."
+                        consecutive5xxErrors:
+                          type: integer
+                          minimum: 1
+                          maximum: 100
+                          default: 3
+                          description: "Number of consecutive 5xx errors before Istio ejects the endpoint."
+                        intervalSeconds:
+                          type: string
+                          default: "30s"
+                          description: "Istio outlierDetection interval (e.g. 30s, 1m)."
+                        baseEjectionTimeSeconds:
+                          type: string
+                          default: "120s"
+                          description: "Istio base ejection duration (e.g. 30s, 5m)."
+                        enableVirtualServiceEject:
+                          type: boolean
+                          default: true
+                          description: "Also add ejection label to Pod for VirtualService subset filtering."
+                remediation:
+                  type: object
+                  properties:
+                    enablePodIsolation:
+                      type: boolean
+                      default: true
+                      description: "Add no-traffic label to unhealthy Pod."
+                    enableLogDump:
+                      type: boolean
+                      default: true
+                      description: "Collect and persist logs from the unhealthy Pod before termination."
+                    enableTicketCreation:
+                      type: boolean
+                      default: true
+                      description: "Open a ticket/issue for the incident via webhook."
+                    enableHScaling:
+                      type: boolean
+                      default: true
+                      description: "Scale up the Deployment to compensate for the isolated Pod."
+                    scaleUpReplicas:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                      default: 1
+                      description: "Number of additional replicas to add during HScale."
+                    maxReplicas:
+                      type: integer
+                      minimum: 1
+                      maximum: 1000
+                      default: 10
+                      description: "Hard cap on total replicas — prevents unbounded scale-out."
+                    cooldownSeconds:
+                      type: integer
+                      minimum: 30
+                      maximum: 3600
+                      default: 120
+                      description: "Minimum seconds between consecutive remediation actions."
+                    logDumpPath:
+                      type: string
+                      default: "/var/log/self-healing"
+                      description: "Persistent volume path where Pod logs are saved."
+                    ticketWebhookUrl:
+                      type: string
+                      description: "Webhook URL for ticket creation (Jira, ServiceNow, etc.). Empty = log-only mode."
+                    ticketWebhookSecret:
+                      type: string
+                      description: "HMAC secret for webhook signature verification."
+                    ticketAuthEmail:
+                      type: string
+                      description: "Email for Basic auth (Jira). Use K8s Secret in production."
+                    ticketAuthToken:
+                      type: string
+                      description: "API token for auth (Jira/ServiceNow). Use K8s Secret in production."
+                    ticketProvider:
+                      type: string
+                      enum:
+                        - generic
+                        - jira
+                        - servicenow
+                      default: "generic"
+                      description: "Ticketing provider — determines payload format."
+                    ticketProjectKey:
+                      type: string
+                      default: "SRE"
+                      description: "Jira project key (only used when ticketProvider=jira)."
+                businessMetrics:
+                  type: object
+                  description: "Optional higher-level business SLO definitions for dashboarding."
+                  properties:
+                    sloTargetPercent:
+                      type: number
+                      minimum: 0
+                      maximum: 100
+                      description: "Target SLO percentage (e.g. 99.9)."
+                    errorBudgetPolicy:
+                      type: string
+                      description: "Error budget policy name (documentation only)."
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - healthy
+                    - degrading
+                    - remediating
+                    - error
+                  description: "Current overall phase of the monitored application."
+                observedGeneration:
+                  type: integer
+                  description: "Generation of the spec that was last processed."
+                lastCheckTime:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of the last successful metrics check."
+                lastRemediationTime:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of the last remediation action."
+                unhealthyPods:
+                  type: string
+                  description: "Comma-separated list of currently unhealthy Pod names."
+                incidentCount:
+                  type: integer
+                  description: "Total number of remediation incidents since creation."
+                currentReplicas:
+                  type: integer
+                  description: "Current replica count of the target Deployment."
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                        description: "Condition type (e.g. MetricsAvailable, Remediating, SLOViolated, IstioEjection)."
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - "Unknown"
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                remediationHistory:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                      podName:
+                        type: string
+                      ruleName:
+                        type: string
+                      value:
+                        type: number
+                      threshold:
+                        type: number
+                      action:
+                        type: string
+                        enum:
+                          - pod_isolation
+                          - log_dump
+                          - ticket_creation
+                          - horizontal_scale
+                          - istio_outlier_detection
+                          - istio_virtual_service_eject
+                          - full_remediation
