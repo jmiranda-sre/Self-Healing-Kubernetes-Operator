@@ -17,73 +17,73 @@ Every action is auditable, configurable, and safe — with cooldown windows, max
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────┐
 │                    AppHealth CRD                              │
-│  spec.targetDeployment: "payment-api"                        │
-│  spec.metrics.rules: [5xx-rate, p99-latency, ...]           │
-│  spec.serviceMesh.istio: {enabled, consecutive5xxErrors, …} │
-│  spec.remediation: {isolate, istio, dump, ticket, scale}    │
-└─────────────┬────────────────────────────────────────────────┘
+│  spec.targetDeployment: "payment-api"                         │
+│  spec.metrics.rules: [5xx-rate, p99-latency, ...]             │
+│  spec.serviceMesh.istio: {enabled, consecutive5xxErrors, …}   │
+│  spec.remediation: {isolate, istio, dump, ticket, scale}      │
+└─────────────┬─────────────────────────────────────────────────┘
               │ kopf timer handler (every N seconds)
               ▼
-┌──────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────┐
 │               Metrics Adapter (Prometheus)                    │
 │  1. Execute each PromQL rule                                  │
-│  2. Evaluate threshold + sustain window (forSeconds)         │
-│  3. Return per-pod violation results                         │
-└─────────────┬────────────────────────────────────────────────┘
+│  2. Evaluate threshold + sustain window (forSeconds)          │
+│  3. Return per-pod violation results                          │
+└─────────────┬─────────────────────────────────────────────────┘
               │ if violation detected
               ▼
-┌──────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────┐
 │              Remediation Pipeline (sequential)                │
 │                                                               │
-│  Step 1: Pod Isolation (K8s label)                           │
-│    → Label pod with self-healing.sre.k8s.io/no-traffic=true  │
+│  Step 1: Pod Isolation (K8s label)                            │
+│    → Label pod with self-healing.sre.k8s.io/no-traffic=true   │
 │                                                               │
-│  Step 1b: Istio Service Mesh Ejection (Sprint 2)             │
-│    → DestinationRule outlierDetection (consecutive5xxErrors) │
-│    → Pod label self-healing.sre.k8s.io/istio-ejected=true   │
+│  Step 1b: Istio Service Mesh Ejection (Sprint 2)              │
+│    → DestinationRule outlierDetection (consecutive5xxErrors)  │
+│    → Pod label self-healing.sre.k8s.io/istio-ejected=true     │
 │    → VirtualService subsets can filter on this label          │
 │                                                               │
 │  Step 2: Log Dump                                             │
 │    → Collect last 500 lines with timestamps                   │
-│    → Persist to PVC: /var/log/self-healing/<ns>/<pod>/       │
+│    → Persist to PVC: /var/log/self-healing/<ns>/<pod>/        │
 │                                                               │
-│  Step 3: Ticket Creation (Sprint 2 — real payloads)          │
-│    → Provider-specific payload (Jira / ServiceNow / generic) │
-│    → HMAC-SHA256 webhook signature verification              │
-│    → Retry with exponential backoff (3 attempts by default)  │
-│    → Basic auth (Jira) / Bearer auth (ServiceNow)            │
+│  Step 3: Ticket Creation (Sprint 2 — real payloads)           │
+│    → Provider-specific payload (Jira / ServiceNow / generic)  │
+│    → HMAC-SHA256 webhook signature verification               │
+│    → Retry with exponential backoff (3 attempts by default)   │
+│    → Basic auth (Jira) / Bearer auth (ServiceNow)             │
 │    → Deterministic incident IDs prevent duplicates            │
 │                                                               │
 │  Step 4: Horizontal Scale                                     │
 │    → Increase Deployment replicas by scaleUpReplicas          │
 │    → Hard cap at maxReplicas (prevents runaway scaling)       │
-└──────────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
-│ Operator Metrics Server (Sprint 3) │
-│ │
-│ GET /metrics → Prometheus scrape endpoint │
-│ GET /health → Liveness probe (JSON) │
-│ GET /ready → Readiness probe (JSON) │
-│ │
-│ Exposes: checks_total, remediations_total, │
-│ istio_ejections_total, tickets_created_total, │
-│ active_monitored_deployments, active_violations, │
-│ check_duration_seconds, uptime_seconds │
-│ leader_status, leader_transitions_total │
+│ Operator Metrics Server (Sprint 3)                           │
+│                                                              │
+│ GET /metrics → Prometheus scrape endpoint                    │
+│ GET /health → Liveness probe (JSON)                          │
+│ GET /ready → Readiness probe (JSON)                          │
+│                                                              │
+│ Exposes: checks_total, remediations_total,                   │
+│ istio_ejections_total, tickets_created_total,                │
+│ active_monitored_deployments, active_violations,             │
+│ check_duration_seconds, uptime_seconds                       │
+│ leader_status, leader_transitions_total                      │
 └──────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────────────────────────────────────────┐
-│ Leader Election (Sprint 4) │
-│ │
-│ coordination.k8s.io/Lease → single active leader │
+┌───────────────────────────────────────────────────────────────┐
+│ Leader Election (Sprint 4)                                    │
+│                                                               │
+│ coordination.k8s.io/Lease → single active leader              │
 │ Leader → runs reconciliation handlers (timer, create, delete) │
-│ Standby → exposes /metrics + /health, /ready = "standby" │
-│ Heartbeat loop → renews Lease every renewal_interval_seconds │
-│ Graceful shutdown → releases Lease for fast failover │
-└──────────────────────────────────────────────────────────────┘
+│ Standby → exposes /metrics + /health, /ready = "standby"      │
+│ Heartbeat loop → renews Lease every renewal_interval_seconds  │
+│ Graceful shutdown → releases Lease for fast failover          │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## What's New
@@ -325,13 +325,13 @@ When running **more than 1 replica**, leader election prevents split-brain — o
 ### How It Works
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Replica 1  │    │  Replica 2  │    │  Replica 3  │
-│  LEADER ✓   │    │  STANDBY    │    │  STANDBY    │
-│  Runs timer │    │  /metrics   │    │  /metrics   │
-│  /ready=ok  │    │  /ready=    │    │  /ready=    │
-│             │    │  standby    │    │  standby    │
-└──────┬──────┘    └─────────────┘    └─────────────┘
+┌──────────────┐    ┌─────────────┐    ┌─────────────┐
+│  Replica 1   │    │  Replica 2  │    │  Replica 3  │
+│  LEADER ✓    │    │  STANDBY    │    │  STANDBY    │
+│  Runs timer  │    │  /metrics   │    │  /metrics   │
+│  /ready=ok   │    │  /ready=    │    │  /ready=    │
+│              │    │  standby    │    │  standby    │
+└──────┬───────┘    └─────────────┘    └─────────────┘
        │ heartbeat every 5s
        ▼
 ┌──────────────────────────────┐
